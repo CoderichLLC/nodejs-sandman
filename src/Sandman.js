@@ -6,6 +6,8 @@ const { flatten } = require('@coderich/util');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
+const resolveSymbol = Symbol('resolve');
+
 module.exports = class Sandman extends EventEmitter {
   #configClient; #configDir; #options; #watcher; #readline; #mergeData = {};
 
@@ -73,9 +75,8 @@ module.exports = class Sandman extends EventEmitter {
     const value = this.#configClient.get(key, ...rest);
 
     if (value?.request) {
-      const tmpKey = '$$RESOLVE$$';
-      value.request = this.#configClient.set(tmpKey, FetchService.decorateRequest(this.#mergeData, key, value.request)).get(tmpKey);
-      this.#configClient.del(tmpKey);
+      value.request = this.#configClient.set(resolveSymbol, FetchService.decorateRequest(this.#mergeData, key, value.request)).get(resolveSymbol);
+      this.#configClient.del(resolveSymbol);
     }
 
     return value;
@@ -96,40 +97,27 @@ module.exports = class Sandman extends EventEmitter {
           return [cmds.filter(c => c.startsWith(line)), line];
         }
 
-        const keys = Object.keys(flatten(this.#configClient.get()));
-        const cmds = Array.from(new Set(keys.map(k => k.split('.').slice(0, pathParts.length).join('.'))));
-        return [cmds.filter(c => c.toLowerCase().startsWith(path.toLowerCase())), path];
+        const flatKeys = Object.keys(flatten(this.#configClient.get()));
 
-        // const paths = key.split('.');
-        // const last = paths.pop();
-        // const path = paths.join('.') || undefined;
-        // const cmds = Object.keys(this.#configClient.get(path, {}));
-        // return [cmds.filter(c => c.toLowerCase().startsWith(last.toLowerCase())), last];
+        // These keys follow the typing of the user
+        const startsWithCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
+          return flatKey.split('.').slice(0, pathParts.length).join('.');
+        }))).filter((c) => {
+          return c.toLowerCase().startsWith(path.toLowerCase());
+        });
 
-        // if (tokens.length === 2) {
-        //   const paths = base.split('.');
-        //   const last = paths.pop();
-        //   const path = paths.join('.') || undefined;
-        //   const cmds = Object.keys(this.#configClient.get(path));
-        //   return [cmds.filter(c => c.toLowerCase().startsWith(last)), last];
-        // }
+        // These are shortcut keys to requests
+        const requestKeyCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
+          const keys = flatKey.split('.');
+          const index = keys.indexOf('request');
+          return index > 0 && keys.slice(0, index).join('.');
+        }).filter(Boolean))).filter((c) => {
+          return c.toLowerCase().includes(path.toLowerCase());
+        });
 
-        // const tuples = rest.at(-1).split('=');
-        // const [key, value] = tuples;
+        const candidates = Array.from(new Set(startsWithCandidates.concat(requestKeyCandidates)));
 
-        // if (tuples.length < 2) {
-        //   const paths = key.split('.');
-        //   const last = paths.pop();
-        //   const path = root.split('.').concat(paths).join('.');
-        //   const cmds = Object.keys(this.#configClient.get(path));
-        //   return [cmds.filter(c => c.startsWith(last)), last];
-        // }
-
-        // const paths = value.split('.');
-        // const last = paths.pop();
-        // const path = paths.join('.') || undefined;
-        // const cmds = Object.keys(this.#configClient.get(path));
-        // return [cmds.filter(c => c.startsWith(last)), last];
+        return [candidates, path];
       },
     });
 
