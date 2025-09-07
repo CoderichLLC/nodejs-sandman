@@ -1,0 +1,20 @@
+on:
+  push:
+    branches:
+      - 'release/**'
+
+env:
+  CR_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: 'ubuntu-latest'
+    steps:
+      - uses: 'actions/checkout@v3'
+      - uses: 'actions/setup-node@v3'
+        with:
+          node-version: '22'
+      - run: 'npm ci'
+      - run: 'git config user.name "${{ vars.GIT_USER }}"'
+      - run: 'git config user.email "${{ vars.GIT_EMAIL }}"'
+      - run: 'npm run dev npmPublish'
