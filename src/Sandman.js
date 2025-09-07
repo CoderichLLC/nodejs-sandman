@@ -2,11 +2,9 @@ const Path = require('path');
 const Readline = require('readline');
 const Chokidar = require('chokidar');
 const EventEmitter = require('events');
-const { flatten } = require('@coderich/util');
+const { get, flatten } = require('@coderich/util');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
-
-const resolveSymbol = Symbol('resolve');
 
 module.exports = class Sandman extends EventEmitter {
   #configClient; #configDir; #options; #watcher; #readline; #mergeData = {};
@@ -27,7 +25,7 @@ module.exports = class Sandman extends EventEmitter {
     this.on('response', () => setImmediate(() => this.#prompt()));
     this.#readline.on('line', async (line) => {
       const [cmd, ...args] = line.trim().split(' ');
-      const value = await Promise.resolve(this[cmd]?.(...args));
+      const value = await Promise.resolve(this[cmd]?.(...args)).catch(e => e);
       this.emit(cmd, value);
       this.#readline.prompt();
     });
@@ -51,12 +49,15 @@ module.exports = class Sandman extends EventEmitter {
     const { assignTo, ...req } = api.request;
     this.emit('request', { key, api, req });
 
-    return FetchService.fetch(req).then((res) => {
-      if (assignTo) this.#configClient.set(assignTo, res);
-      this.emit('response', { key, api, req, res });
-      return res;
-    }).catch((e) => {
-      this.emit('error', e);
+    return FetchService.fetch(req).then(({ res, data }) => {
+      if (assignTo) this.#configClient.set(assignTo, data);
+      this.emit('response', { key, api, req, res, data });
+      return { key, api, req, res, data };
+    }).catch((error) => {
+      this.emit('error', { key, api, req, error });
+      return Promise.reject(error);
+    }).then((results) => {
+      return results.res.ok ? results : Promise.reject(results);
     });
   }
 
@@ -72,14 +73,15 @@ module.exports = class Sandman extends EventEmitter {
   }
 
   #get(key, ...rest) {
-    const value = this.#configClient.get(key, ...rest);
+    const { config } = this.#configClient.toObject();
+    const value = get(config, key);
 
     if (value?.request) {
-      value.request = this.#configClient.set(resolveSymbol, FetchService.decorateRequest(this.#mergeData, key, value.request)).get(resolveSymbol);
-      this.#configClient.del(resolveSymbol);
+      const request = FetchService.decorateRequest(this.#mergeData, key, value.request);
+      this.#configClient.merge({ [key]: { request } });
     }
 
-    return value;
+    return this.#configClient.get(key, ...rest);
   }
 
   #createInterface() {

@@ -1,13 +1,14 @@
 const Merge = require('lodash.merge');
 
 exports.fetch = (req) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const { url, ...params } = exports.normalizeRequest(req);
 
-    fetch(url, params).then((res) => {
+    fetch(url, params).then(async (res) => {
       const ct = res.headers.get('content-type') || '';
-      return ct.includes('application/json') ? res.json() : res.text();
-    }).then(resolve).catch(resolve);
+      const data = await (ct.includes('application/json') ? res.json() : res.text());
+      return { res, data };
+    }).then(resolve).catch(reject);
   });
 };
 
@@ -49,8 +50,8 @@ exports.normalizeRequest = (req) => {
 exports.decorateRequest = (mergeData, key, request) => {
   const toMerge = key.split('.').reduce((prev, k, i, arr) => {
     const $key = arr.slice(0, i).join('.');
-    return Merge({}, prev, mergeData[$key]?.request);
-  }, mergeData.request || {});
+    return Merge(prev, mergeData[$key]?.request);
+  }, { ...mergeData.request });
 
   return Merge(toMerge, request);
 };
