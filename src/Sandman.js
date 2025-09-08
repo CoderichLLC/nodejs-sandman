@@ -7,7 +7,7 @@ const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
 module.exports = class Sandman extends EventEmitter {
-  #configClient; #configDir; #options; #watcher; #readline; #mergeData = {};
+  #configClient; #configDir; #options; #watcher; #readline; #mergeData = {}; #cli;
 
   constructor(configDir, options) {
     super();
@@ -16,54 +16,36 @@ module.exports = class Sandman extends EventEmitter {
     this.#configClient = new ConfigClient().merge(ConfigClient.parseDir(configDir, arg => this.#ignore(arg)));
     this.#createInterface();
     this.#createWatcher();
+    this.#createCLI();
     this.#prompt();
 
-    this.on('get', () => setImmediate(() => this.#prompt()));
-    this.on('set', () => setImmediate(() => this.#prompt()));
-    this.on('del', () => setImmediate(() => this.#prompt()));
-    this.on('save', () => setImmediate(() => this.#prompt()));
-    this.on('response', () => setImmediate(() => this.#prompt()));
     this.#readline.on('line', async (line) => {
+      if (!line) return this.#readline.prompt();
       const [cmd, ...args] = line.trim().split(' ');
-      const value = await Promise.resolve(this[cmd]?.(...args)).catch(e => e);
-      this.emit(cmd, value);
-      this.#readline.prompt();
+      const info = this.#cli[cmd] ? { cmd, args } : { cmd: 'run', args: [cmd, ...args] };
+      const value = await Promise.resolve(this.#cli[info.cmd](...info.args)).catch(e => e);
+      return this.emit(cmd, value);
     });
   }
 
-  get(...args) {
-    return this.#get(...args);
+  cli() {
+    return this.#cli;
   }
 
-  set(key, value = null) {
-    return this.#configClient.set(key, this.#configClient.get(value, value));
-  }
-
-  del(key = '') {
-    return this.#configClient.del(key);
-  }
-
-  run(key) {
+  #run(key) {
     const api = this.#get(key, {});
-    if (!api?.request) return this.emit('error', new Error(`Request "${key}" Not Found`));
-    const { assignTo, ...req } = api.request;
-    this.emit('request', { key, api, req });
+    if (!api?.request) return this.emit('error', { key, error: `Request "${key}" Not Found` });
+    this.emit('request', { key, api });
 
-    return FetchService.fetch(req).then(({ res, data }) => {
-      if (assignTo) this.#configClient.set(assignTo, data);
-      this.emit('response', { key, api, req, res, data });
-      return { key, api, req, res, data };
+    return FetchService.fetch(api.request).then(({ res, data }) => {
+      this.emit('response', { key, api, res, data });
+      return { key, api, res, data };
     }).catch((error) => {
-      this.emit('error', { key, api, req, error });
+      this.emit('error', { key, api, error });
       return Promise.reject(error);
     }).then((results) => {
       return results.res.ok ? results : Promise.reject(results);
     });
-  }
-
-  quit() {
-    process.exit();
-    return this;
   }
 
   #prompt() {
@@ -84,6 +66,32 @@ module.exports = class Sandman extends EventEmitter {
     return this.#configClient.get(key, ...rest);
   }
 
+  #createCLI() {
+    const self = this;
+
+    this.#cli = new Proxy({
+      run: (...args) => this.#run(...args),
+      get: (...args) => this.#get(...args),
+      set: (key = '', value = null) => this.#configClient.set(key, value),
+      del: (key = '') => this.#configClient.del(key),
+      quit: () => process.exit(),
+    }, {
+      get(obj, prop, receiver) {
+        const value = Reflect.get(obj, prop, receiver);
+
+        if (typeof value === 'function') {
+          return (...args) => {
+            const result = value(...args);
+            setImmediate(() => self.#prompt());
+            return result;
+          };
+        }
+
+        return value;
+      },
+    });
+  }
+
   #createInterface() {
     this.#readline = Readline.createInterface({
       input: process.stdin,
@@ -94,8 +102,8 @@ module.exports = class Sandman extends EventEmitter {
         const path = tokens.at(-1);
         const pathParts = path.split('.');
 
-        if (tokens.length < 2) {
-          const cmds = Sandman.#getOwnMethods(Sandman, EventEmitter);
+        if (!line) {
+          const cmds = Object.keys(this.#cli);
           return [cmds.filter(c => c.startsWith(line)), line];
         }
 
@@ -175,10 +183,4 @@ module.exports = class Sandman extends EventEmitter {
     const key = paths.join('.');
     return { ...parsed, filepath, paths, key };
   };
-
-  static #getOwnMethods(cls, base = Object) {
-    const own = Object.getOwnPropertyNames(cls.prototype).filter(m => m !== 'constructor' && typeof cls.prototype[m] === 'function');
-    const inherited = Object.getOwnPropertyNames(base.prototype || {});
-    return own.filter(m => !inherited.includes(m));
-  }
 };
