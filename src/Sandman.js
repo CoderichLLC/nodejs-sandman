@@ -98,29 +98,40 @@ module.exports = class Sandman extends EventEmitter {
       output: process.stdout,
       terminal: true,
       completer: (line) => {
-        const tokens = line.split(' ');
-        const path = tokens.at(-1);
-        const pathParts = path.split('.');
+        // Show available CLI commands
+        if (!line) return [Object.keys(this.#cli), line];
 
-        if (!line) {
-          const cmds = Object.keys(this.#cli);
-          return [cmds.filter(c => c.startsWith(line)), line];
+        const tokens = line.split(' ');
+        const lastToken = tokens.at(-1);
+        const paths = lastToken.split('.');
+        const path = paths.at(-1);
+
+        // Specific request data selector
+        if (lastToken.startsWith('.')) {
+          const api = this.#get(tokens.at(-2));
+          if (!api?.request) return [[], path];
+          const dataPath = ['request'].concat(paths.slice(1, -1)).join('.');
+          const data = get(api, dataPath, {});
+          return [Object.keys(data).filter(k => k.toLowerCase().startsWith(path.toLowerCase())), path];
         }
 
+        //
         const flatKeys = Object.keys(flatten(this.#configClient.get()));
 
         // These keys follow the typing of the user
         const startsWithCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
-          return flatKey.split('.').slice(0, pathParts.length).join('.');
+          return flatKey.split('.').slice(0, paths.length).join('.'); // So we can pluck off the last one
         }))).filter((c) => {
-          return c.toLowerCase().startsWith(path.toLowerCase());
-        });
+          return c.toLowerCase().startsWith(lastToken.toLowerCase());
+        }).map(p => p.split('.').at(-1)); // Here!
 
         // These are shortcut keys to requests
         const requestKeyCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
           const keys = flatKey.split('.');
           const index = keys.indexOf('request');
-          return index > 0 && keys.slice(0, index).join('.');
+          const typedPath = keys.slice(0, paths.length - 1).join('.');
+          const autocompletePath = keys.slice(paths.length - 1, index).join('.');
+          return index > 0 && lastToken.toLowerCase().startsWith(typedPath.toLowerCase()) && autocompletePath;
         }).filter(Boolean))).filter((c) => {
           return c.toLowerCase().includes(path.toLowerCase());
         });
