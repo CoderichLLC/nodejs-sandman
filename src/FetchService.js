@@ -2,7 +2,7 @@ const Merge = require('lodash.merge');
 
 exports.fetch = (req) => {
   return new Promise((resolve, reject) => {
-    const { url, ...params } = exports.normalizeRequest(req);
+    const { url, ...params } = exports.normalizeRequest({ ...req });
 
     fetch(url, params).then(async (res) => {
       const ct = res.headers.get('content-type') || '';
