@@ -6,8 +6,11 @@ const { get, flatten } = require('@coderich/util');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
+const resolveSymbol = Symbol('resolve');
+
 module.exports = class Sandman extends EventEmitter {
   #configClient; #configDir; #options; #watcher; #readline; #mergeData = {}; #cli;
+  #captureCandidates = false; #candidates = []; #tabCounter = 0; #candidateIndex = 0; #line; #lastToken;
 
   constructor(configDir, options) {
     super();
@@ -29,7 +32,16 @@ module.exports = class Sandman extends EventEmitter {
   }
 
   cli() {
-    return this.#cli;
+    return Object.defineProperties(this.#cli, {
+      resolve: {
+        value: (...args) => {
+          this.#configClient.resolve(...args);
+          this.#prompt();
+          return this.#cli;
+        },
+        configurable: true,
+      },
+    });
   }
 
   #run(key) {
@@ -60,7 +72,9 @@ module.exports = class Sandman extends EventEmitter {
 
     if (value?.request) {
       const request = FetchService.decorateRequest(this.#mergeData, key, value.request);
-      this.#configClient.merge({ [key]: { request } });
+      const $request = this.#configClient.set(resolveSymbol, request).get(resolveSymbol);
+      this.#configClient.del(resolveSymbol);
+      return $request;
     }
 
     return this.#configClient.get(key, ...rest);
@@ -106,7 +120,7 @@ module.exports = class Sandman extends EventEmitter {
         const paths = lastToken.split('.');
         const path = paths.at(-1);
 
-        // Specific request data selector
+        // Specific request.data selector
         if (lastToken.startsWith('.')) {
           const api = this.#get(tokens.at(-2));
           if (!api?.request) return [[], path];
@@ -120,34 +134,51 @@ module.exports = class Sandman extends EventEmitter {
 
         // These keys follow the typing of the user
         const startsWithCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
-          return flatKey.split('.').slice(0, paths.length).join('.'); // So we can pluck off the last one
+          return flatKey.split('.').slice(0, paths.length).join('.');
         }))).filter((c) => {
           return c.toLowerCase().startsWith(lastToken.toLowerCase());
-        }).map(p => p.split('.').at(-1)); // Here!
+        }); // .map(p => p.split('.').at(-1)); // Here!
 
         // These are shortcut keys to requests
         const requestKeyCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
           const keys = flatKey.split('.');
           const index = keys.indexOf('request');
-          const typedPath = keys.slice(0, paths.length - 1).join('.');
-          const autocompletePath = keys.slice(paths.length - 1, index).join('.');
-          return index > 0 && lastToken.toLowerCase().startsWith(typedPath.toLowerCase()) && autocompletePath;
+          return index && flatKey.split('.').slice(0, index).join('.');
+          // const typedPath = keys.slice(0, paths.length - 1).join('.');
+          // const autocompletePath = keys.slice(paths.length - 1, index).join('.');
+          // return index > 0 && lastToken.toLowerCase().startsWith(typedPath.toLowerCase()) && autocompletePath;
         }).filter(Boolean))).filter((c) => {
-          return c.toLowerCase().includes(path.toLowerCase());
+          return c.toLowerCase().includes(lastToken.toLowerCase());
+          // return c.toLowerCase().includes(path.toLowerCase());
         });
 
         const candidates = Array.from(new Set(startsWithCandidates.concat(requestKeyCandidates)));
-
-        return [candidates, path];
+        if (this.#captureCandidates) { this.#candidates = candidates; this.#line = line; this.#lastToken = lastToken; }
+        return [candidates, lastToken];
       },
     });
 
     process.stdin.on('keypress', (ch, key) => {
+      if (key && key.name === 'tab') this.#tabCounter++; else this.#tabCounter = 0;
+      this.#captureCandidates = this.#tabCounter === 2;
+
       if (key && key.name === 'escape') {
         this.#readline.line = '';
         Readline.cursorTo(process.stdout, 0);
         Readline.clearLine(process.stdout, 0);
         this.#readline.prompt();
+      } else if (this.#tabCounter > 2 && this.#candidates.length) {
+        let value = this.#candidates.at(this.#candidateIndex++);
+
+        if (!value) {
+          this.#candidateIndex = 0;
+          value = this.#candidates.at(this.#candidateIndex++);
+        }
+
+        value = this.#line.replace(this.#lastToken, value);
+        this.#readline.line = value;
+        this.#readline.cursor = value.length;
+        this.#readline.prompt(true);
       }
     });
   }
@@ -167,8 +198,10 @@ module.exports = class Sandman extends EventEmitter {
         if (key) this.#configClient.set(key, api);
         else this.#configClient.merge(api);
         if (api.request) this.emit('save', { key, api });
+        this.#prompt();
       } else if (['unlink', 'unlinkDir'].includes(event)) {
         this.#configClient.del(key);
+        this.#prompt();
       }
     });
   }

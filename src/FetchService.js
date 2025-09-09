@@ -13,7 +13,9 @@ exports.fetch = (req) => {
 };
 
 exports.normalizeRequest = (req) => {
+  req.path ??= '';
   req.method ??= 'get'; req.headers ??= {}; req.params ??= {};
+  req.url += req.path;
   req.url = Object.entries(req.params).reduce((url, [key, value]) => { url.searchParams.append(key, value); return url; }, new URL(req.url)).toString();
   req.headers = Object.entries(req.headers).reduce((prev, [key, value]) => Object.assign(prev, { [key.toLowerCase()]: value }), {});
   const [contentType] = req.headers['content-type']?.split(';') || [];
@@ -50,8 +52,8 @@ exports.normalizeRequest = (req) => {
 exports.decorateRequest = (mergeData, key, request) => {
   const toMerge = key.split('.').reduce((prev, k, i, arr) => {
     const $key = arr.slice(0, i).join('.');
-    return Merge(prev, mergeData[$key]?.request);
-  }, { ...mergeData.request });
+    return Merge({}, prev, mergeData[$key]?.request);
+  }, Merge({}, mergeData.request));
 
-  return Merge(toMerge, request);
+  return Merge({}, toMerge, request);
 };
