@@ -197,7 +197,7 @@ module.exports = class Sandman extends EventEmitter {
       if (['add', 'change'].includes(event)) {
         const api = ConfigClient.parseFile(path);
         if (key) this.#configClient.set(key, api);
-        else this.#configClient.merge(api);
+        else this.#configClient.merge(api); // index.yaml
         if (api.request) this.emit('save', { key, api });
         this.#prompt();
       } else if (['unlink', 'unlinkDir'].includes(event)) {
