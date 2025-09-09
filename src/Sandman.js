@@ -1,4 +1,5 @@
 const Path = require('path');
+const Merge = require('lodash.merge');
 const Readline = require('readline');
 const Chokidar = require('chokidar');
 const EventEmitter = require('events');
@@ -71,10 +72,10 @@ module.exports = class Sandman extends EventEmitter {
     const value = get(config, key);
 
     if (value?.request) {
-      const request = FetchService.decorateRequest(this.#mergeData, key, value.request);
-      const $request = this.#configClient.set(resolveSymbol, request).get(resolveSymbol);
+      const $request = FetchService.decorateRequest(this.#mergeData, key, value.request);
+      const request = this.#configClient.set(resolveSymbol, $request).get(resolveSymbol);
       this.#configClient.del(resolveSymbol);
-      return $request;
+      return Merge({}, value, { request });
     }
 
     return this.#configClient.get(key, ...rest);
