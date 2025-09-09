@@ -11,7 +11,7 @@ const resolveSymbol = Symbol('resolve');
 
 module.exports = class Sandman extends EventEmitter {
   #configClient; #configDir; #options; #watcher; #readline; #mergeData = {}; #cli;
-  #captureCandidates = false; #candidates = []; #tabCounter = 0; #candidateIndex = 0; #line; #lastToken;
+  #captureCandidates = false; #candidates = []; #tabCounter = 0; #candidateIndex; #line; #lastToken;
 
   constructor(configDir, options) {
     super();
@@ -37,7 +37,6 @@ module.exports = class Sandman extends EventEmitter {
       resolve: {
         value: (...args) => {
           this.#configClient.resolve(...args);
-          this.#prompt();
           return this.#cli;
         },
         configurable: true,
@@ -89,6 +88,7 @@ module.exports = class Sandman extends EventEmitter {
       get: (...args) => this.#get(...args),
       set: (key = '', value = null) => this.#configClient.set(key, value),
       del: (key = '') => this.#configClient.del(key),
+      curl: key => FetchService.toCURL(this.#get(key, {}).request),
       quit: () => process.exit(),
     }, {
       get(obj, prop, receiver) {
@@ -96,8 +96,9 @@ module.exports = class Sandman extends EventEmitter {
 
         if (typeof value === 'function') {
           return (...args) => {
+            self.#readline.pause();
             const result = value(...args);
-            setImmediate(() => self.#prompt());
+            Promise.resolve().then(() => result).catch(() => null).finally(() => self.#prompt());
             return result;
           };
         }
@@ -154,7 +155,8 @@ module.exports = class Sandman extends EventEmitter {
         });
 
         const candidates = Array.from(new Set(startsWithCandidates.concat(requestKeyCandidates)));
-        if (this.#captureCandidates) { this.#candidates = candidates; this.#line = line; this.#lastToken = lastToken; }
+        if (this.#captureCandidates) { this.#candidates = candidates; this.#line = line; this.#lastToken = lastToken; this.#candidateIndex = -1; }
+        if (candidates.length === 1 && candidates[0] === lastToken) return [[], lastToken];
         return [candidates, lastToken];
       },
     });
@@ -169,14 +171,8 @@ module.exports = class Sandman extends EventEmitter {
         Readline.clearLine(process.stdout, 0);
         this.#readline.prompt();
       } else if (this.#tabCounter > 2 && this.#candidates.length) {
-        let value = this.#candidates.at(this.#candidateIndex++);
-
-        if (!value) {
-          this.#candidateIndex = 0;
-          value = this.#candidates.at(this.#candidateIndex++);
-        }
-
-        value = this.#line.replace(this.#lastToken, value);
+        const candidate = this.#candidates[this.#candidateIndex = ++this.#candidateIndex % this.#candidates.length];
+        const value = this.#line.replace(this.#lastToken, candidate);
         this.#readline.line = value;
         this.#readline.cursor = value.length;
         this.#readline.prompt(true);

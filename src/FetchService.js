@@ -1,5 +1,7 @@
 const Merge = require('lodash.merge');
 
+function shq(s) { return `'${String(s).replace(/'/g, `'"'"'`)}'`; }
+
 exports.fetch = (req) => {
   return new Promise((resolve, reject) => {
     const { url, ...params } = exports.normalizeRequest({ ...req });
@@ -56,4 +58,49 @@ exports.decorateRequest = (mergeData, key, request) => {
   }, Merge({}, mergeData.request));
 
   return Merge({}, toMerge, request);
+};
+
+exports.toCURL = (request, { pretty = true, redactAuth = false } = {}) => {
+  if (!request) return '<no request>';
+
+  const { url, path, method, headers, params, data } = request;
+
+  const base = new URL(url);
+  const full = new URL(path || '', base);
+
+  // append query params
+  for (const [k, v] of Object.entries(params || {})) {
+    if (v == null) continue;
+    Array.isArray(v) ? v.forEach(x => full.searchParams.append(k, String(x))) : full.searchParams.append(k, String(v));
+  }
+
+  const parts = ['curl', '-sS'];
+  if (method) parts.push('-X', method.toUpperCase());
+
+  // headers
+  const hdrs = { ...headers };
+  for (const k of Object.keys(hdrs)) {
+    if (redactAuth && /^authorization$/i.test(k)) {
+      hdrs[k] = hdrs[k].replace(/(?<=^.{6}).+/, '***REDACTED***');
+    }
+    parts.push('-H', shq(`${k}: ${hdrs[k]}`));
+  }
+
+  // body (skip for GET)
+  if (data != null && !/^GET$/i.test(method)) {
+    if (typeof data === 'string') {
+      parts.push('--data-raw', shq(data));
+    } else if (data instanceof URLSearchParams) {
+      parts.push('-H', shq('Content-Type: application/x-www-form-urlencoded'));
+      parts.push('--data', shq(data.toString()));
+    } else if (typeof data === 'object') {
+      // JSON by default
+      const hasCT = Object.keys(hdrs).some(h => /^content-type$/i.test(h));
+      if (!hasCT) parts.push('-H', shq('Content-Type: application/json'));
+      parts.push('--data-raw', shq(JSON.stringify(data)));
+    }
+  }
+
+  parts.push(shq(full.toString()));
+  return pretty ? parts.join(' \\\n  ') : parts.join(' ');
 };
