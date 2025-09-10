@@ -10,7 +10,7 @@ const ConfigClient = require('./ConfigClient');
 const resolveSymbol = Symbol('resolve');
 
 module.exports = class Sandman extends EventEmitter {
-  #configClient; #configDir; #options; #watcher; #readline; #mergeData = {}; #cli;
+  #configClient; #configDir; #options; #watcher; #readline; #mergeData = {}; #cli; #cliCounter = 0;
   #captureCandidates = false; #candidates = []; #tabCounter = 0; #candidateIndex; #line; #lastToken;
 
   constructor(configDir, options) {
@@ -47,22 +47,24 @@ module.exports = class Sandman extends EventEmitter {
   #run(key) {
     const api = this.#get(key, {});
     if (!api?.request) return this.emit('error', { key, error: `Request "${key}" Not Found` });
-    this.emit('request', { key, api });
+    this.emit('api', { api, key });
+    const request = FetchService.normalizeRequest(api.request);
+    this.emit('request', { request, api, key });
 
-    return FetchService.fetch(api.request).then(({ res, data }) => {
-      this.emit('response', { key, api, res, data });
-      return { key, api, res, data };
+    return FetchService.fetch(request).then(({ response, data }) => {
+      this.emit('response', { response, api, key, data });
+      return { response, api, key, data };
     }).catch((error) => {
       this.emit('error', { key, api, error });
       return Promise.reject(error);
     }).then((results) => {
-      return results.res.ok ? results : Promise.reject(results);
+      return results.response.ok ? results : Promise.reject(results);
     });
   }
 
   #prompt() {
     this.#readline.setPrompt(this.#configClient.get('prompt'));
-    this.#readline.prompt();
+    this.#readline.prompt(true);
     return this;
   }
 
@@ -96,9 +98,12 @@ module.exports = class Sandman extends EventEmitter {
 
         if (typeof value === 'function') {
           return (...args) => {
+            self.#cliCounter++;
             self.#readline.pause();
-            const result = value(...args);
-            Promise.resolve().then(() => result).catch(() => null).finally(() => self.#prompt());
+            const result = value.apply(this, args);
+            Promise.resolve(result).catch(() => null).finally(() => setImmediate(() => {
+              if (--self.#cliCounter === 0) self.#prompt();
+            }));
             return result;
           };
         }

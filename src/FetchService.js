@@ -2,53 +2,48 @@ const Merge = require('lodash.merge');
 
 function shq(s) { return `'${String(s).replace(/'/g, `'"'"'`)}'`; }
 
-exports.fetch = (req) => {
-  return new Promise((resolve, reject) => {
-    const { url, ...params } = exports.normalizeRequest({ ...req });
-
-    fetch(url, params).then(async (res) => {
-      const ct = res.headers.get('content-type') || '';
-      const data = await (ct.includes('application/json') ? res.json() : res.text());
-      return { res, data };
-    }).then(resolve).catch(reject);
+exports.fetch = (request) => {
+  return fetch(request).then(async (response) => {
+    const ct = response.headers.get('content-type') || '';
+    const data = await (ct.includes('application/json') ? response.json() : response.text());
+    return { response, data };
   });
 };
 
 exports.normalizeRequest = (req) => {
-  req.path ??= '';
-  req.method ??= 'get'; req.headers ??= {}; req.params ??= {};
-  req.url += req.path;
-  req.url = Object.entries(req.params).reduce((url, [key, value]) => { url.searchParams.append(key, value); return url; }, new URL(req.url)).toString();
+  req.path ??= ''; req.method ??= 'get'; req.headers ??= {}; req.params ??= {};
+  req.url = Object.entries(req.params).reduce((url, [key, value]) => { url.searchParams.append(key, value); return url; }, new URL(`${req.url}${req.path}`)).toString();
   req.headers = Object.entries(req.headers).reduce((prev, [key, value]) => Object.assign(prev, { [key.toLowerCase()]: value }), {});
   const [contentType] = req.headers['content-type']?.split(';') || [];
-  const { data } = req; delete req.data;
-  if (data == null) return req;
 
-  switch (contentType) {
-    case 'application/json': {
-      req.body = JSON.stringify(data);
-      break;
-    }
-    case 'application/x-www-form-urlencoded': {
-      req.body = new URLSearchParams(data).toString();
-      break;
-    }
-    case 'multipart/form-data': {
-      delete req.headers['content-type'];
-      // req.duplex = 'half';
-      req.body = Object.entries(data).reduce((form, [key, value]) => {
-        form.append(key, value);
-        return form;
-      }, new FormData());
-      break;
-    }
-    default: {
-      req.body = data;
-      break;
+  if (req.data) {
+    switch (contentType) {
+      case 'application/json': {
+        req.body = JSON.stringify(req.data);
+        break;
+      }
+      case 'application/x-www-form-urlencoded': {
+        req.body = new URLSearchParams(req.data).toString();
+        break;
+      }
+      case 'multipart/form-data': {
+        delete req.headers['content-type'];
+        req.body = Object.entries(req.data).reduce((form, [key, value]) => {
+          form.append(key, value);
+          return form;
+        }, new FormData());
+        break;
+      }
+      default: {
+        req.body = req.data;
+        break;
+      }
     }
   }
 
-  return req;
+  delete req.data; delete req.params;
+  const { url, ...params } = req;
+  return new Request(url, params);
 };
 
 exports.decorateRequest = (mergeData, key, request) => {
