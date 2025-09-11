@@ -1,27 +1,17 @@
-const Path = require('path');
-const Merge = require('lodash.merge');
-const Readline = require('readline');
-const Chokidar = require('chokidar');
 const EventEmitter = require('events');
-const { get, flatten } = require('@coderich/util');
+const ReadlineService = require('./ReadlineService');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
-const resolveSymbol = Symbol('resolve');
-
 module.exports = class Sandman extends EventEmitter {
-  #configClient; #configDir; #options; #watcher; #readline; #mergeData = {}; #cli; #cliCounter = 0;
-  #captureCandidates = false; #candidates = []; #tabCounter = 0; #candidateIndex; #line; #lastToken;
+  #configClient; #options; #readline; #cli; #cliCounter = 0;
 
   constructor(configDir, options) {
     super();
-    this.#configDir = configDir;
     this.#options = options;
-    this.#configClient = new ConfigClient().merge(ConfigClient.parseDir(configDir, arg => this.#ignore(arg)));
-    this.#createInterface();
-    this.#createWatcher();
+    this.#configClient = new ConfigClient(configDir);
     this.#createCLI();
-    this.#prompt();
+    this.#readline = ReadlineService.createInterface(this.#cli, this.#configClient);
 
     this.#readline.on('line', async (line) => {
       if (!line) return this.#readline.prompt();
@@ -30,6 +20,8 @@ module.exports = class Sandman extends EventEmitter {
       const value = await Promise.resolve(this.#cli[info.cmd](...info.args)).catch(e => e);
       return this.emit(cmd, value);
     });
+
+    this.#prompt();
   }
 
   cli() {
@@ -45,7 +37,7 @@ module.exports = class Sandman extends EventEmitter {
   }
 
   #run(key) {
-    const api = this.#get(key, {});
+    const api = this.#configClient.get(key, {});
     if (!api?.request) return this.emit('error', { key, error: `Request "${key}" Not Found` });
     this.emit('api', { api, key });
     const request = FetchService.normalizeRequest(api.request);
@@ -68,29 +60,15 @@ module.exports = class Sandman extends EventEmitter {
     return this;
   }
 
-  #get(key, ...rest) {
-    const { config } = this.#configClient.toObject();
-    const value = get(config, key);
-
-    if (value?.request) {
-      const $request = FetchService.decorateRequest(this.#mergeData, key, value.request);
-      const request = this.#configClient.set(resolveSymbol, $request).get(resolveSymbol);
-      this.#configClient.del(resolveSymbol);
-      return Merge({}, value, { request });
-    }
-
-    return this.#configClient.get(key, ...rest);
-  }
-
   #createCLI() {
     const self = this;
 
     this.#cli = new Proxy({
       run: (...args) => this.#run(...args),
-      get: (...args) => this.#get(...args),
+      get: (...args) => this.#configClient.get(...args),
       set: (key = '', value = null) => this.#configClient.set(key, value),
       del: (key = '') => this.#configClient.del(key),
-      curl: key => FetchService.toCURL(this.#get(key, {}).request),
+      curl: key => FetchService.toCURL(this.#configClient.get(key, {}).request),
       quit: () => process.exit(),
     }, {
       get(obj, prop, receiver) {
@@ -112,121 +90,4 @@ module.exports = class Sandman extends EventEmitter {
       },
     });
   }
-
-  #createInterface() {
-    this.#readline = Readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: true,
-      completer: (line) => {
-        // Show available CLI commands
-        if (!line) return [Object.keys(this.#cli), line];
-
-        const tokens = line.split(' ');
-        const lastToken = tokens.at(-1);
-        const paths = lastToken.split('.');
-        const path = paths.at(-1);
-
-        // Specific request.data selector
-        if (lastToken.startsWith('.')) {
-          const api = this.#get(tokens.at(-2));
-          if (!api?.request) return [[], path];
-          const dataPath = ['request'].concat(paths.slice(1, -1)).join('.');
-          const data = get(api, dataPath, {});
-          return [Object.keys(data).filter(k => k.toLowerCase().startsWith(path.toLowerCase())), path];
-        }
-
-        //
-        const flatKeys = Object.keys(flatten(this.#configClient.get()));
-
-        // These keys follow the typing of the user
-        const startsWithCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
-          return flatKey.split('.').slice(0, paths.length).join('.');
-        }))).filter((c) => {
-          return c.toLowerCase().startsWith(lastToken.toLowerCase());
-        }); // .map(p => p.split('.').at(-1)); // Here!
-
-        // These are shortcut keys to requests
-        const requestKeyCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
-          const keys = flatKey.split('.');
-          const index = keys.indexOf('request');
-          return index && flatKey.split('.').slice(0, index).join('.');
-          // const typedPath = keys.slice(0, paths.length - 1).join('.');
-          // const autocompletePath = keys.slice(paths.length - 1, index).join('.');
-          // return index > 0 && lastToken.toLowerCase().startsWith(typedPath.toLowerCase()) && autocompletePath;
-        }).filter(Boolean))).filter((c) => {
-          return c.toLowerCase().includes(lastToken.toLowerCase());
-          // return c.toLowerCase().includes(path.toLowerCase());
-        });
-
-        const candidates = Array.from(new Set(startsWithCandidates.concat(requestKeyCandidates)));
-        if (this.#captureCandidates) { this.#candidates = candidates; this.#line = line; this.#lastToken = lastToken; this.#candidateIndex = -1; }
-        if (candidates.length === 1 && candidates[0] === lastToken) return [[], lastToken];
-        return [candidates, lastToken];
-      },
-    });
-
-    process.stdin.on('keypress', (ch, key) => {
-      if (key && key.name === 'tab') this.#tabCounter++; else this.#tabCounter = 0;
-      this.#captureCandidates = this.#tabCounter === 2;
-
-      if (key && key.name === 'escape') {
-        this.#readline.line = '';
-        Readline.cursorTo(process.stdout, 0);
-        Readline.clearLine(process.stdout, 0);
-        this.#readline.prompt();
-      } else if (this.#tabCounter > 2 && this.#candidates.length) {
-        const candidate = this.#candidates[this.#candidateIndex = ++this.#candidateIndex % this.#candidates.length];
-        const value = this.#line.replace(this.#lastToken, candidate);
-        this.#readline.line = value;
-        this.#readline.cursor = value.length;
-        this.#readline.prompt(true);
-      }
-    });
-  }
-
-  #createWatcher() {
-    this.#watcher = Chokidar.watch(this.#configDir, {
-      awaitWriteFinish: true,
-      ignoreInitial: true,
-      ignored: filepath => this.#ignore(this.#normalizeWatcherPath(filepath)),
-    });
-
-    this.#watcher.on('all', (event, path) => {
-      const { key } = this.#normalizeWatcherPath(path);
-
-      if (['add', 'change'].includes(event)) {
-        const api = ConfigClient.parseFile(path);
-        if (key) this.#configClient.set(key, api);
-        else this.#configClient.merge(api); // index.yaml
-        if (api.request) this.emit('save', { key, api });
-        this.#prompt();
-      } else if (['unlink', 'unlinkDir'].includes(event)) {
-        this.#configClient.del(key);
-        this.#prompt();
-      }
-    });
-  }
-
-  #ignore({ name, filepath, paths }) {
-    if (name.startsWith('.')) return true;
-
-    if (name.startsWith('+')) {
-      const request = ConfigClient.parseFile(filepath);
-      const key = paths.slice(0, -1).join('.');
-      if (key) this.#mergeData[key] = { request };
-      else this.#mergeData.request = request;
-      return true;
-    }
-
-    return false;
-  }
-
-  #normalizeWatcherPath = (filepath) => {
-    const parsed = Path.parse(filepath);
-    const folder = filepath.substring(this.#configDir.length + 1, filepath.length - parsed.ext.length);
-    const paths = folder.split('/').filter(el => el && el !== 'index');
-    const key = paths.join('.');
-    return { ...parsed, filepath, paths, key };
-  };
 };

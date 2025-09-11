@@ -1,0 +1,5 @@
+request:
+  method: 'get'
+  headers:
+    content-type: 'application/json'
+    

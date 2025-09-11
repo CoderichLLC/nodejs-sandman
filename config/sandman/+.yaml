@@ -1,0 +1,3 @@
+request:
+  headers:
+    content-type: 'multipart/form-data'

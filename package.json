@@ -15,7 +15,7 @@
     "dev": "coderich-dev"
   },
   "dependencies": {
-    "@coderich/config": "2.2.4",
+    "@coderich/config": "2.2.5",
     "@coderich/util": "2.1.3",
     "chokidar": "4.0.3",
     "lodash.clonedeep": "4.5.0",

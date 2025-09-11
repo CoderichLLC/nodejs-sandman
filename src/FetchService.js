@@ -1,7 +1,3 @@
-const Merge = require('lodash.merge');
-
-function shq(s) { return `'${String(s).replace(/'/g, `'"'"'`)}'`; }
-
 exports.fetch = (request) => {
   return fetch(request).then(async (response) => {
     const ct = response.headers.get('content-type') || '';
@@ -28,10 +24,8 @@ exports.normalizeRequest = (req) => {
       }
       case 'multipart/form-data': {
         delete req.headers['content-type'];
-        req.body = Object.entries(req.data).reduce((form, [key, value]) => {
-          form.append(key, value);
-          return form;
-        }, new FormData());
+        req.body = new FormData();
+        Object.entries(req.data).forEach(([key, value]) => req.body.append(key, value));
         break;
       }
       default: {
@@ -46,14 +40,7 @@ exports.normalizeRequest = (req) => {
   return new Request(url, params);
 };
 
-exports.decorateRequest = (mergeData, key, request) => {
-  const toMerge = key.split('.').reduce((prev, k, i, arr) => {
-    const $key = arr.slice(0, i).join('.');
-    return Merge({}, prev, mergeData[$key]?.request);
-  }, Merge({}, mergeData.request));
-
-  return Merge({}, toMerge, request);
-};
+exports.shq = s => `'${String(s).replace(/'/g, "'\\''")}'`;
 
 exports.toCURL = (request, { pretty = true, redactAuth = false } = {}) => {
   if (!request) return '<no request>';
@@ -84,18 +71,17 @@ exports.toCURL = (request, { pretty = true, redactAuth = false } = {}) => {
   // body (skip for GET)
   if (data != null && !/^GET$/i.test(method)) {
     if (typeof data === 'string') {
-      parts.push('--data-raw', shq(data));
+      parts.push('--data-raw', exports.shq(data));
     } else if (data instanceof URLSearchParams) {
-      parts.push('-H', shq('Content-Type: application/x-www-form-urlencoded'));
-      parts.push('--data', shq(data.toString()));
+      parts.push('-H', exports.shq('Content-Type: application/x-www-form-urlencoded'));
+      parts.push('--data', exports.shq(data.toString()));
     } else if (typeof data === 'object') {
-      // JSON by default
       const hasCT = Object.keys(hdrs).some(h => /^content-type$/i.test(h));
-      if (!hasCT) parts.push('-H', shq('Content-Type: application/json'));
-      parts.push('--data-raw', shq(JSON.stringify(data)));
+      if (!hasCT) parts.push('-H', exports.shq('Content-Type: application/json'));
+      parts.push('--data-raw', exports.shq(JSON.stringify(data)));
     }
   }
 
-  parts.push(shq(full.toString()));
+  parts.push(exports.shq(full.toString()));
   return pretty ? parts.join(' \\\n  ') : parts.join(' ');
 };
