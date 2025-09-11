@@ -14,13 +14,14 @@ module.exports = class Sandman extends EventEmitter {
     this.#readline = ReadlineService.createInterface(this.#cli, this.#configClient);
 
     this.#readline.on('line', async (line) => {
-      if (!line) return this.#readline.prompt();
+      if (!line) return this.#prompt();
       const [cmd, ...args] = line.trim().split(' ');
       const info = this.#cli[cmd] ? { cmd, args } : { cmd: 'run', args: [cmd, ...args] };
       const value = await Promise.resolve(this.#cli[info.cmd](...info.args)).catch(e => e);
       return this.emit(cmd, value);
     });
 
+    this.#configClient.watch();
     this.#prompt();
   }
 

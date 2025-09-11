@@ -29,7 +29,9 @@ module.exports = class ConfigClient extends Config {
     const unflatData = Util.unflatten(flatData);
     const rawData = key === undefined ? unflatData : Util.get(unflatData, key);
     super.set(dataSymbol, rawData);
-    return super.get(dataSymbol);
+    const resolvedData = super.get(dataSymbol);
+    super.del(dataSymbol);
+    return resolvedData;
   }
 
   mergeDir(dir = this.#configDir) {
@@ -55,6 +57,8 @@ module.exports = class ConfigClient extends Config {
         this.del(key);
       }
     });
+
+    return watcher;
   }
 
   #ignore({ name, filepath, paths }) {

@@ -5,8 +5,14 @@ const appRootDir = Path.resolve(__dirname, '..');
 const configClient = new ConfigClient(Path.join(appRootDir, 'config'));
 
 describe('ConfigClient', () => {
+  let targetData;
+
   test('get()', () => {
-    expect(configClient.get()).toMatchObject({
+    targetData = configClient.get();
+
+    expect(targetData).toEqual({
+      env: 'dev',
+      prompt: 'hello: ',
       request: {
         request: {
           url: 'basic',
@@ -30,6 +36,8 @@ describe('ConfigClient', () => {
         },
       },
     });
+
+    expect(configClient.get()).toEqual(targetData);
   });
 
   test('get introspection', () => {
@@ -42,5 +50,7 @@ describe('ConfigClient', () => {
         },
       },
     });
+
+    expect(configClient.get()).toEqual(targetData);
   });
 });

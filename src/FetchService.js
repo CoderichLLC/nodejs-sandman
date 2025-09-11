@@ -65,7 +65,7 @@ exports.toCURL = (request, { pretty = true, redactAuth = false } = {}) => {
     if (redactAuth && /^authorization$/i.test(k)) {
       hdrs[k] = hdrs[k].replace(/(?<=^.{6}).+/, '***REDACTED***');
     }
-    parts.push('-H', shq(`${k}: ${hdrs[k]}`));
+    parts.push('-H', exports.shq(`${k}: ${hdrs[k]}`));
   }
 
   // body (skip for GET)
