@@ -24,10 +24,17 @@ describe('ConfigClient', () => {
       },
       sandman: {
         folder: {
+          createImage: {
+            request: {
+              method: 'post',
+              headers: {
+                'content-type': 'text/plain',
+              },
+            },
+          },
           introspection: {
             request: {
               method: 'post',
-              url: undefined,
               headers: {
                 'content-type': 'multipart/form-data',
               },

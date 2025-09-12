@@ -65,6 +65,7 @@ module.exports = class Sandman extends EventEmitter {
       raw: key => this.#configClient.raw(key),
       get: (...args) => this.#configClient.get(...args),
       set: (...args) => this.#configClient.set(...args),
+      del: (...args) => this.#configClient.del(...args),
       curl: key => FetchService.toCURL(this.#configClient.get(key, {}).request),
       quit: () => process.exit(),
     }, {
@@ -86,6 +87,10 @@ module.exports = class Sandman extends EventEmitter {
         return value;
       },
     }), {
+      '/': {
+        configurable: true,
+        value: (...args) => this.#run(...args),
+      },
       run: {
         configurable: true,
         value: (...args) => this.#run(...args),

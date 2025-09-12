@@ -1,3 +1,4 @@
+const FS = require('fs');
 const Path = require('path');
 const Chokidar = require('chokidar');
 const Config = require('@coderich/config');
@@ -10,7 +11,17 @@ module.exports = class ConfigClient extends Config {
 
   constructor(configDir) {
     super({}, {
-      file: name => `file-${name}`,
+      file: (name) => {
+        if (name == null || `${name}` === 'undefined') return name;
+        const path = Path.resolve(process.cwd(), name);
+        try {
+          const buffer = FS.readFileSync(path);
+          return new File([buffer], name);
+        } catch {
+          process.stdout.write(`Unable to load file: "${name}"\n`);
+          return undefined;
+        }
+      },
     });
     this.#configDir = configDir;
     this.mergeDir();
@@ -39,6 +50,11 @@ module.exports = class ConfigClient extends Config {
   set(key = '', value) {
     if (key.startsWith?.('.')) return this.resolve({ '.': { [key.substring(1)]: value } });
     return super.set(key, value);
+  }
+
+  del(key = '') {
+    if (key.startsWith?.('.')) return Util.set(this.toObject().dictionary['.'], [key.substring(1)], undefined);
+    return super.del(key);
   }
 
   mergeDir(dir = this.#configDir) {
@@ -72,11 +88,21 @@ module.exports = class ConfigClient extends Config {
     const flatData = key === undefined ? Util.flatten(data) : Util.flatten({ [key]: data });
     const apiKeys = Array.from(new Set(Object.keys(flatData).map(k => k.substring(0, Math.max(k.indexOf('.request'), 0))).filter(Boolean)));
 
+    const mergeKeys = Object.keys(this.#mergeData).reverse();
+
     apiKeys.forEach((apiKey) => {
-      Reflect.ownKeys(this.#mergeData).forEach((mergeKey) => {
-        if (mergeKey === dataSymbol) flatData[apiKey] = { ...this.#mergeData[dataSymbol], ...flatData[apiKey] };
-        else if (apiKey.startsWith(mergeKey)) flatData[apiKey] = { ...this.#mergeData[mergeKey][dataSymbol], ...flatData[apiKey] };
+      mergeKeys.forEach((mergeKey) => {
+        if (apiKey.startsWith(mergeKey)) {
+          Object.entries(this.#mergeData[mergeKey][dataSymbol]).forEach(([k, v]) => {
+            flatData[`${apiKey}.${k}`] ??= v;
+          });
+        }
       });
+      if (this.#mergeData[dataSymbol]) {
+        Object.entries(this.#mergeData[dataSymbol]).forEach(([k, v]) => {
+          flatData[`${apiKey}.${k}`] ??= v;
+        });
+      }
     });
 
     const unflatData = Util.unflatten(flatData);
