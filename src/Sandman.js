@@ -15,7 +15,7 @@ module.exports = class Sandman extends EventEmitter {
 
     this.#readline.on('line', async (line) => {
       if (!line) return this.#prompt();
-      const [cmd, ...args] = line.trim().split(' ');
+      const [cmd, ...args] = Sandman.parseArgs(line.trim());
       const info = this.#cli[cmd] ? { cmd, args } : { cmd: 'run', args: [cmd, ...args] };
       const value = await Promise.resolve(this.#cli[info.cmd](...info.args)).catch(e => e);
       return this.emit(cmd, value);
@@ -26,15 +26,7 @@ module.exports = class Sandman extends EventEmitter {
   }
 
   cli() {
-    return Object.defineProperties(this.#cli, {
-      resolve: {
-        value: (...args) => {
-          this.#configClient.resolve(...args);
-          return this.#cli;
-        },
-        configurable: true,
-      },
-    });
+    return this.#cli;
   }
 
   #run(key) {
@@ -61,14 +53,18 @@ module.exports = class Sandman extends EventEmitter {
     return this;
   }
 
+  set(key, value) {
+    if (key.startsWith?.('.')) this.resolve({ '.': { [key.substring(1)]: value } });
+    return super.set(key, value);
+  }
+
   #createCLI() {
     const self = this;
 
-    this.#cli = new Proxy({
-      run: (...args) => this.#run(...args),
+    this.#cli = Object.defineProperties(new Proxy({
+      raw: key => this.#configClient.raw(key),
       get: (...args) => this.#configClient.get(...args),
-      set: (key = '', value = null) => this.#configClient.set(key, value),
-      del: (key = '') => this.#configClient.del(key),
+      set: (...args) => this.#configClient.set(...args),
       curl: key => FetchService.toCURL(this.#configClient.get(key, {}).request),
       quit: () => process.exit(),
     }, {
@@ -89,6 +85,36 @@ module.exports = class Sandman extends EventEmitter {
 
         return value;
       },
+    }), {
+      run: {
+        configurable: true,
+        value: (...args) => this.#run(...args),
+      },
+      resolve: {
+        configurable: true,
+        value: (...args) => {
+          this.#configClient.resolve(...args);
+          return this.#cli;
+        },
+      },
     });
+  }
+
+  static parseArgs(line) {
+    const regex = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    const args = [];
+    let match;
+
+    while ((match = regex.exec(line)) !== null) {
+      if (match[1] !== undefined) {
+        args.push(match[1]); // double-quoted
+      } else if (match[2] !== undefined) {
+        args.push(match[2]); // single-quoted
+      } else if (match[3] !== undefined) {
+        args.push(match[3]); // bare word
+      }
+    }
+
+    return args;
   }
 };

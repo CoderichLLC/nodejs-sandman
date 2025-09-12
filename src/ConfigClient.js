@@ -9,29 +9,36 @@ module.exports = class ConfigClient extends Config {
   #configDir; #mergeData = {};
 
   constructor(configDir) {
-    super();
+    super({}, {
+      file: name => `file-${name}`,
+    });
     this.#configDir = configDir;
     this.mergeDir();
   }
 
   get(key, ...args) {
+    if (key?.startsWith?.('.')) {
+      const { dictionary } = this.toObject();
+      const k = key.substring(1);
+      return k.length ? Util.get(dictionary['.'], k) : dictionary['.'];
+    }
+
     const data = super.get(key, ...args);
-    const flatData = key === undefined ? Util.flatten(data) : Util.flatten({ [key]: data });
-    const apiKeys = Array.from(new Set(Object.keys(flatData).map(k => k.substring(0, Math.max(k.indexOf('.request'), 0))).filter(Boolean)));
-
-    apiKeys.forEach((apiKey) => {
-      Reflect.ownKeys(this.#mergeData).forEach((mergeKey) => {
-        if (mergeKey === dataSymbol) flatData[apiKey] = { ...this.#mergeData[dataSymbol], ...flatData[apiKey] };
-        else if (apiKey.startsWith(mergeKey)) flatData[apiKey] = { ...this.#mergeData[mergeKey][dataSymbol], ...flatData[apiKey] };
-      });
-    });
-
-    const unflatData = Util.unflatten(flatData);
-    const rawData = key === undefined ? unflatData : Util.get(unflatData, key);
-    super.set(dataSymbol, rawData);
+    const mergedData = this.#mergeMergeData(key, data);
+    this.set(dataSymbol, mergedData);
     const resolvedData = super.get(dataSymbol);
-    super.del(dataSymbol);
+    this.del(dataSymbol);
     return resolvedData;
+  }
+
+  raw(key) {
+    const data = Util.get(this.toObject().config, key);
+    return this.#mergeMergeData(key, data);
+  }
+
+  set(key = '', value) {
+    if (key.startsWith?.('.')) return this.resolve({ '.': { [key.substring(1)]: value } });
+    return super.set(key, value);
   }
 
   mergeDir(dir = this.#configDir) {
@@ -61,6 +68,21 @@ module.exports = class ConfigClient extends Config {
     return watcher;
   }
 
+  #mergeMergeData(key, data) {
+    const flatData = key === undefined ? Util.flatten(data) : Util.flatten({ [key]: data });
+    const apiKeys = Array.from(new Set(Object.keys(flatData).map(k => k.substring(0, Math.max(k.indexOf('.request'), 0))).filter(Boolean)));
+
+    apiKeys.forEach((apiKey) => {
+      Reflect.ownKeys(this.#mergeData).forEach((mergeKey) => {
+        if (mergeKey === dataSymbol) flatData[apiKey] = { ...this.#mergeData[dataSymbol], ...flatData[apiKey] };
+        else if (apiKey.startsWith(mergeKey)) flatData[apiKey] = { ...this.#mergeData[mergeKey][dataSymbol], ...flatData[apiKey] };
+      });
+    });
+
+    const unflatData = Util.unflatten(flatData);
+    return key === undefined ? unflatData : Util.get(unflatData, key);
+  }
+
   #ignore({ name, filepath, paths }) {
     if (name.startsWith('.')) return true;
 
@@ -82,29 +104,6 @@ module.exports = class ConfigClient extends Config {
     const key = paths.join('.');
     return { ...parsed, filepath, paths, key };
   };
-
-  // exports.decorateRequest = (mergeData, key, request) => {
-  //   const toMerge = key.split('.').reduce((prev, k, i, arr) => {
-  //     const $key = arr.slice(0, i).join('.');
-  //     return Merge({}, prev, mergeData[$key]?.request);
-  //   }, Merge({}, mergeData.request));
-
-  //   return Merge({}, toMerge, request);
-  // };
-
-  // #get(key, ...rest) {
-  //   const { config } = this.#configClient.toObject();
-  //   const value = get(config, key);
-
-  //   if (value?.request) {
-  //     const $request = FetchService.decorateRequest(this.#mergeData, key, value.request);
-  //     const request = this.#configClient.resolve({ vars: value.request.vars }).set(resolveSymbol, $request).get(resolveSymbol);
-  //     this.#configClient.del(resolveSymbol);
-  //     return Merge({}, value, { request });
-  //   }
-
-  //   return this.#configClient.get(key, ...rest);
-  // }
 
   // mergeConfigDir(dir) {
   //   const ignored = (parsed) => {

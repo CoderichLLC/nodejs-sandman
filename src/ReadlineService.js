@@ -1,5 +1,5 @@
 const Readline = require('readline');
-const { get, flatten } = require('@coderich/util');
+const Util = require('@coderich/util');
 
 exports.createInterface = (cli, configClient) => {
   const captureInfo = {
@@ -28,13 +28,16 @@ exports.createInterface = (cli, configClient) => {
       if (lastToken.startsWith('.')) {
         const api = configClient.get(tokens.at(-2));
         if (!api?.request) return [[], path];
-        const dataPath = ['request'].concat(paths.slice(1, -1)).join('.');
-        const data = get(api, dataPath, {});
-        return [Object.keys(data).filter(k => k.toLowerCase().startsWith(path.toLowerCase())), path];
+        const { config } = configClient.toObject();
+        const conf = Util.get(config, tokens.at(-2), {});
+        return [Object.keys(conf), path];
+        // const dataPath = ['request'].concat(paths.slice(1, -1)).join('.');
+        // const data = get(api, dataPath, {});
+        // return [Object.keys(data).filter(k => k.toLowerCase().startsWith(path.toLowerCase())), path];
       }
 
       //
-      const flatKeys = Object.keys(flatten(configClient.get()));
+      const flatKeys = Object.keys(Util.flatten(configClient.get()));
 
       // These keys follow the typing of the user
       const startsWithCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
