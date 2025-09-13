@@ -42,7 +42,7 @@ module.exports = class ConfigClient extends Config {
     return resolvedData;
   }
 
-  raw(key) {
+  raw(key = '') {
     const data = Util.get(this.toObject().config, key);
     return this.#mergeMergeData(key, data);
   }

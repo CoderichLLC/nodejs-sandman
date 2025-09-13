@@ -1,26 +1,31 @@
+const Path = require('path');
 const EventEmitter = require('events');
+const { spawn } = require('child_process');
 const ReadlineService = require('./ReadlineService');
 const UtilService = require('./UtilService');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
+const cmdNotFound = Symbol('cmdNotFound');
+
 module.exports = class Sandman extends EventEmitter {
-  #configClient; #options; #readline; #cli; #cliCounter = 0;
+  #configClient; #options; #readline; #cli; #cliCounter = 0; #configDir;
 
   constructor(configDir, options) {
     super();
     this.#options = options;
-    this.#configClient = new ConfigClient(configDir);
+    this.#configDir = configDir;
+    this.#configClient = new ConfigClient(this.#configDir);
     this.#createCLI();
     this.#readline = ReadlineService.createInterface(this.#cli, this.#configClient);
-    this.#configClient.watch(configDir, event => this.emit('save', event));
+    this.#configClient.watch(this.#configDir, event => this.emit('save', event));
 
     this.#readline.on('line', async (line) => {
       if (!line) return this.#prompt();
-      const [cmd, ...args] = UtilService.parseArgs(line.trim());
-      const info = this.#cli[cmd] ? { cmd, args } : { cmd: 'run', args: [cmd, ...args] };
-      const value = await Promise.resolve(this.#cli[info.cmd](...info.args)).catch(e => e);
-      return this.emit(cmd, value);
+      const [cmd, key, ...args] = UtilService.parseArgs(line.trim());
+      const $cmd = Object.keys(this.#cli).includes(cmd) ? cmd : cmdNotFound;
+      const value = await Promise.resolve(this.#cli[$cmd](key, ...args)).catch(e => e);
+      return this.emit($cmd, value);
     });
 
     this.#prompt();
@@ -63,10 +68,17 @@ module.exports = class Sandman extends EventEmitter {
     const self = this;
 
     this.#cli = Object.defineProperties(new Proxy({
-      raw: key => this.#configClient.raw(key),
-      get: (...args) => this.#configClient.get(...args),
-      set: (...args) => this.#configClient.set(...args),
-      del: (...args) => this.#configClient.del(...args),
+      '/': (...args) => this.#run(...args),
+      edit: (key, ext = '.yaml') => {
+        const path = this.#configClient.get('ide', 'open');
+        const filePath = Path.join(this.#configDir, ...key.split('.')).concat('.yaml');
+        const child = spawn(path, [filePath], { detached: true, stdio: 'ignore' });
+        child.unref();
+      },
+      show: key => ({
+        $: this.#configClient.raw(key),
+        [key]: this.#configClient.get(key),
+      }),
       curl: key => FetchService.toCURL(this.#configClient.get(key, {}).request),
       quit: () => process.exit(),
     }, {
@@ -88,13 +100,25 @@ module.exports = class Sandman extends EventEmitter {
         return value;
       },
     }), {
-      '/': {
+      get: {
         configurable: true,
-        value: (...args) => this.#run(...args),
+        value: (...args) => this.#configClient.get(...args),
+      },
+      set: {
+        configurable: true,
+        value: (...args) => this.#configClient.set(...args),
+      },
+      del: {
+        configurable: true,
+        value: (...args) => this.#configClient.del(...args),
       },
       run: {
         configurable: true,
         value: (...args) => this.#run(...args),
+      },
+      [cmdNotFound]: {
+        configurable: true,
+        value: key => this.emit('error', { key, error: 'Command Not Found' }),
       },
       resolve: {
         configurable: true,
