@@ -61,7 +61,7 @@ module.exports = class ConfigClient extends Config {
     return this.merge(Config.parseDir(dir, (...args) => this.#ignore(...args)));
   }
 
-  watch(dir = this.#configDir) {
+  watch(dir = this.#configDir, onSave) {
     const watcher = Chokidar.watch(dir, {
       awaitWriteFinish: true,
       ignoreInitial: true,
@@ -75,7 +75,7 @@ module.exports = class ConfigClient extends Config {
         const api = Config.parseFile(path);
         if (key) this.set(key, api);
         else this.merge(api); // index.yaml
-        // if (api.request) this.emit('save', { key, api });
+        if (api.request) onSave({ key, api });
       } else if (['unlink', 'unlinkDir'].includes(event)) {
         this.del(key);
       }

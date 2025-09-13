@@ -1,10 +1,11 @@
 const Readline = require('readline');
 const Util = require('@coderich/util');
+const UtilService = require('./UtilService');
 
 exports.createInterface = (cli, configClient) => {
   const captureInfo = {
     line: '',
-    lastToken: '',
+    lastArg: '',
     candidates: [],
     tabCounter: 0,
     candidateIndex: -1,
@@ -16,53 +17,37 @@ exports.createInterface = (cli, configClient) => {
     output: process.stdout,
     terminal: true,
     completer: (line) => {
-      // Show available CLI commands
-      if (!line) return [Object.keys(cli), line];
+      const [cmd, ...args] = UtilService.parseArgs(line);
 
-      const tokens = line.split(' ');
-      const lastToken = tokens.at(-1);
-      const paths = lastToken.split('.');
-      const path = paths.at(-1);
+      // Show available CLI commands
+      if (!cmd) return [Object.keys(cli), line];
+      if (line.split(' ').length < 2) return [Object.keys(cli).filter(key => key.toLowerCase().startsWith(cmd.toLowerCase())), line];
+
+      const lastArg = args.at(-1) || '';
+      const lastPaths = lastArg.split('.');
+      const lastPath = lastPaths.at(-1); // current typing
+      const previousPath = lastPaths.slice(0, -1).join('.');
 
       // Specific request.data selector
-      if (lastToken.startsWith('.')) {
-        const api = configClient.get(tokens.at(-2));
-        if (!api?.request) return [[], path];
-        const { config } = configClient.toObject();
-        const conf = Util.get(config, tokens.at(-2), {});
-        return [Object.keys(conf), path];
-        // const dataPath = ['request'].concat(paths.slice(1, -1)).join('.');
-        // const data = get(api, dataPath, {});
-        // return [Object.keys(data).filter(k => k.toLowerCase().startsWith(path.toLowerCase())), path];
+      if (lastArg.startsWith('.')) {
+        const requestAttrPath = `${args.at(-2)}.request${previousPath}`;
+        const requestAttrObj = configClient.get(requestAttrPath, {});
+        return [Object.keys(requestAttrObj).filter(key => key.toLowerCase().startsWith(lastPath.toLowerCase())), lastPath];
       }
 
       //
       const flatKeys = Object.keys(Util.flatten(configClient.get()));
+      const requestKeys = flatKeys.map(k => k.substring(0, Math.max(k.indexOf('.request'), 0))).filter(Boolean);
 
-      // These keys follow the typing of the user
-      const startsWithCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
-        return flatKey.split('.').slice(0, paths.length).join('.');
-      }))).filter((c) => {
-        return c.toLowerCase().startsWith(lastToken.toLowerCase());
-      }); // .map(p => p.split('.').at(-1)); // Here!
+      const candidates = Array.from(new Set(requestKeys
+        .filter(requestKey => requestKey.toLowerCase().startsWith(previousPath.toLowerCase()))
+        .filter(requestKey => requestKey.split('.').slice(lastPaths.length - 1).join('.').toLowerCase().includes(lastPath.toLowerCase()))
+        // .concat(Object.keys(cli).filter(key => key.toLowerCase().startsWith(cmd.toLowerCase())))
+      ));
 
-      // These are shortcut keys to requests
-      const requestKeyCandidates = Array.from(new Set(flatKeys.map((flatKey) => {
-        const keys = flatKey.split('.');
-        const index = keys.indexOf('request');
-        return index && flatKey.split('.').slice(0, index).join('.');
-        // const typedPath = keys.slice(0, paths.length - 1).join('.');
-        // const autocompletePath = keys.slice(paths.length - 1, index).join('.');
-        // return index > 0 && lastToken.toLowerCase().startsWith(typedPath.toLowerCase()) && autocompletePath;
-      }).filter(Boolean))).filter((c) => {
-        return c.toLowerCase().includes(lastToken.toLowerCase());
-        // return c.toLowerCase().includes(path.toLowerCase());
-      });
-
-      const candidates = Array.from(new Set(startsWithCandidates.concat(requestKeyCandidates)));
-      if (captureInfo.captureCandidates) { captureInfo.candidates = candidates; captureInfo.line = line; captureInfo.lastToken = lastToken; captureInfo.candidateIndex = -1; }
-      if (candidates.length === 1 && candidates[0] === lastToken) return [[], lastToken];
-      return [candidates, lastToken];
+      if (captureInfo.captureCandidates && lastArg) { captureInfo.candidates = candidates; captureInfo.line = line; captureInfo.lastArg = lastArg; captureInfo.candidateIndex = -1; }
+      if (captureInfo.tabbing || (candidates.length === 1 && candidates[0] === lastArg)) return [[], lastArg];
+      return [candidates, lastArg];
     },
   });
 
@@ -76,11 +61,14 @@ exports.createInterface = (cli, configClient) => {
       Readline.clearLine(process.stdout, 0);
       readline.prompt();
     } else if (captureInfo.tabCounter > 2 && captureInfo.candidates.length) {
+      captureInfo.tabbing = true;
       const candidate = captureInfo.candidates[captureInfo.candidateIndex = ++captureInfo.candidateIndex % captureInfo.candidates.length];
-      const value = captureInfo.line.replace(captureInfo.lastToken, candidate);
+      const value = captureInfo.line.replace(captureInfo.lastArg, candidate);
       readline.line = value;
       readline.cursor = value.length;
       readline.prompt(true);
+    } else {
+      captureInfo.tabbing = false;
     }
   });
 

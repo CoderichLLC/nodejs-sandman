@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const ReadlineService = require('./ReadlineService');
+const UtilService = require('./UtilService');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
@@ -12,16 +13,16 @@ module.exports = class Sandman extends EventEmitter {
     this.#configClient = new ConfigClient(configDir);
     this.#createCLI();
     this.#readline = ReadlineService.createInterface(this.#cli, this.#configClient);
+    this.#configClient.watch(configDir, event => this.emit('save', event));
 
     this.#readline.on('line', async (line) => {
       if (!line) return this.#prompt();
-      const [cmd, ...args] = Sandman.parseArgs(line.trim());
+      const [cmd, ...args] = UtilService.parseArgs(line.trim());
       const info = this.#cli[cmd] ? { cmd, args } : { cmd: 'run', args: [cmd, ...args] };
       const value = await Promise.resolve(this.#cli[info.cmd](...info.args)).catch(e => e);
       return this.emit(cmd, value);
     });
 
-    this.#configClient.watch();
     this.#prompt();
   }
 
@@ -103,23 +104,5 @@ module.exports = class Sandman extends EventEmitter {
         },
       },
     });
-  }
-
-  static parseArgs(line) {
-    const regex = /"([^"]*)"|'([^']*)'|(\S+)/g;
-    const args = [];
-    let match;
-
-    while ((match = regex.exec(line)) !== null) {
-      if (match[1] !== undefined) {
-        args.push(match[1]); // double-quoted
-      } else if (match[2] !== undefined) {
-        args.push(match[2]); // single-quoted
-      } else if (match[3] !== undefined) {
-        args.push(match[3]); // bare word
-      }
-    }
-
-    return args;
   }
 };
