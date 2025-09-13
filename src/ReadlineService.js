@@ -26,7 +26,8 @@ exports.createInterface = (cli, configClient) => {
       const lastArg = args.at(-1) || '';
       const lastPaths = lastArg.split('.');
       const lastPath = lastPaths.at(-1); // current typing
-      const previousPath = lastPaths.slice(0, -1).join('.');
+      const previousPaths = lastPaths.slice(0, -1);
+      const previousPath = previousPaths.join('.');
 
       // Specific request.data selector
       if (lastArg.startsWith('.')) {
@@ -40,9 +41,14 @@ exports.createInterface = (cli, configClient) => {
       const requestKeys = flatKeys.map(k => k.substring(0, Math.max(k.indexOf('.request'), 0))).filter(Boolean);
 
       const candidates = Array.from(new Set(requestKeys
-        .filter(requestKey => requestKey.toLowerCase().startsWith(previousPath.toLowerCase()))
-        .filter(requestKey => requestKey.split('.').slice(lastPaths.length - 1).join('.').toLowerCase().includes(lastPath.toLowerCase()))
-        // .concat(Object.keys(cli).filter(key => key.toLowerCase().startsWith(cmd.toLowerCase())))
+        .filter((requestKey) => {
+          const requestPaths = requestKey.split('.').map(rp => rp.toLowerCase());
+          return previousPaths.every(path => requestPaths.includes(path.toLowerCase()));
+        })
+        .filter((requestKey) => {
+          const requestPaths = requestKey.split('.');
+          return requestPaths.slice(lastPaths.length - 1).join('.').toLowerCase().includes(lastPath.toLowerCase());
+        })
       ));
 
       if (captureInfo.captureCandidates && lastArg) { captureInfo.candidates = candidates; captureInfo.line = line; captureInfo.lastArg = lastArg; captureInfo.candidateIndex = -1; }

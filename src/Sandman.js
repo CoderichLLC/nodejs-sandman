@@ -75,7 +75,7 @@ module.exports = class Sandman extends EventEmitter {
         const child = spawn(path, [filePath], { detached: true, stdio: 'ignore' });
         child.unref();
       },
-      show: key => ({
+      view: key => ({
         $: this.#configClient.raw(key),
         [key]: this.#configClient.get(key),
       }),
