@@ -39,18 +39,23 @@ module.exports = class Sandman extends EventEmitter {
     return this;
   }
 
-  #run(key) {
+  #run(key, opts = { emit: true }) {
     const api = this.#configClient.get(key, {});
-    if (!api?.request) return this.emit('error', { key, error: `Request "${key}" Not Found` });
-    this.emit('api', { api, key });
+
+    if (!api?.request) {
+      if (opts.emit) this.emit('error', { key, error: `Request "${key}" Not Found` });
+      return Promise.reject(new Error(`Request "${key}" Not Found`));
+    }
+
+    if (opts.emit) this.emit('api', { api, key });
     const request = FetchService.normalizeRequest(api.request);
-    this.emit('request', { request, api, key });
+    if (opts.emit) this.emit('request', { request, api, key });
 
     return FetchService.fetch(request).then(({ response, data }) => {
-      this.emit('response', { response, api, key, data });
+      if (opts.emit) this.emit('response', { response, api, key, data });
       return { response, api, key, data };
     }).catch((error) => {
-      this.emit('error', { key, api, error });
+      if (opts.emit) this.emit('error', { key, api, error });
       return Promise.reject(error);
     }).then((results) => {
       return results.response.ok ? results : Promise.reject(results);
