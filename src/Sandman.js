@@ -3,6 +3,7 @@ const EventEmitter = require('events');
 const { spawn } = require('child_process');
 const ReadlineService = require('./ReadlineService');
 const UtilService = require('./UtilService');
+const CURLService = require('./CURLService');
 const FetchService = require('./FetchService');
 const ConfigClient = require('./ConfigClient');
 
@@ -77,7 +78,7 @@ module.exports = class Sandman extends EventEmitter {
         $: this.#configClient.raw(key),
         [key]: this.#configClient.get(key),
       }),
-      curl: key => FetchService.toCURL(this.#configClient.get(key, {}).request),
+      curl: key => CURLService.toCURL(this.#configClient.get(key, {}).request),
       quit: () => process.exit(),
     }, {
       get(obj, prop, receiver) {
