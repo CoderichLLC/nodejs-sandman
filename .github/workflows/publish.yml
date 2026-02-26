@@ -1,20 +1,43 @@
+name: Publish
+
 on:
   push:
     branches:
       - 'release/**'
 
-env:
-  CR_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+permissions:
+  id-token: write # Required for OIDC / trusted publishing
+  contents: write # For commits/tags
 
 jobs:
   publish:
-    runs-on: 'ubuntu-latest'
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: 'actions/checkout@v3'
-      - uses: 'actions/setup-node@v3'
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: 'npm ci'
-      - run: 'git config user.name "${{ vars.GIT_USER }}"'
-      - run: 'git config user.email "${{ vars.GIT_EMAIL }}"'
-      - run: 'npm run dev npmPublish'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@11.5.1
+          echo "node: $(node --version)"
+          echo "npm:  $(npm --version)"
+          which node
+          which npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Configure Git author
+        run: |
+          git config user.name "${{ vars.GIT_USER }}"
+          git config user.email "${{ vars.GIT_EMAIL }}"
+
+      - name: Publish via npmPublish script
+        run: npm run dev npmPublish
