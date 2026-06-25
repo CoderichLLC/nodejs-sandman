@@ -1,5 +1,5 @@
-const FS = require('fs');
-const Path = require('path');
+const FS = require('node:fs');
+const Path = require('node:path');
 const Chokidar = require('chokidar');
 const Config = require('@coderich/config');
 const Util = require('@coderich/util');

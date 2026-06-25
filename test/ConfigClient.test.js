@@ -1,4 +1,4 @@
-const Path = require('path');
+const Path = require('node:path');
 const ConfigClient = require('../src/ConfigClient');
 
 const appRootDir = Path.resolve(__dirname, '..');

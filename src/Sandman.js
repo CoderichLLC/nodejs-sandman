@@ -1,6 +1,6 @@
-const Path = require('path');
-const EventEmitter = require('events');
-const { spawn } = require('child_process');
+const Path = require('node:path');
+const EventEmitter = require('node:events');
+const { spawn } = require('node:child_process');
 const ReadlineService = require('./ReadlineService');
 const UtilService = require('./UtilService');
 const CURLService = require('./CURLService');

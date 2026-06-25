@@ -70,7 +70,7 @@ exports.toCURL = function toCURL(request, { pretty = true, redactAuth = false } 
 
     if (Array.isArray(hdrs)) {
       for (const item of hdrs) {
-        if (!item) continue;
+        if (!item) continue; // eslint-disable-line no-continue
         if (Array.isArray(item) && item.length >= 2) push(item[0], item[1]);
         else if (typeof item === 'object') {
           for (const [k, v] of Object.entries(item)) push(k, v);

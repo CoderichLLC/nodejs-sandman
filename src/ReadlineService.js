@@ -1,4 +1,4 @@
-const Readline = require('readline');
+const Readline = require('node:readline');
 const Util = require('@coderich/util');
 const UtilService = require('./UtilService');
 

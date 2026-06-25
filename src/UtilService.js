@@ -3,6 +3,7 @@ exports.parseArgs = (line) => {
   const args = [];
   let match;
 
+  // eslint-disable-next-line no-cond-assign
   while ((match = regex.exec(line)) !== null) {
     if (match[1] !== undefined) {
       args.push(match[1]); // double-quoted

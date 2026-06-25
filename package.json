@@ -15,12 +15,12 @@
     "dev": "coderich-dev"
   },
   "dependencies": {
-    "@coderich/config": "2.2.7",
-    "@coderich/util": "2.1.5",
+    "@coderich/config": "2.3.0",
+    "@coderich/util": "2.2.3",
     "chokidar": "4.0.3"
   },
   "devDependencies": {
-    "@coderich/dev": "0.6.1"
+    "@coderich/dev": "0.6.4"
   },
   "repository": {
     "type": "git",
