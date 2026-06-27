@@ -1,6 +1,6 @@
 {
   "name": "@coderich/sandman",
-  "version": "0.0.18",
+  "version": "0.1.0",
   "main": "index.js",
   "publishConfig": {
     "access": "public"
