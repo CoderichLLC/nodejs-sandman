@@ -21,13 +21,19 @@ module.exports = class Sandman extends EventEmitter {
     this.#readline = ReadlineService.createInterface(this.#cli, this.#configClient);
     this.#configClient.watch(this.#configDir, event => this.emit('save', event));
 
-    this.#readline.on('line', async (line) => {
+    this.#readline.on('line', (line) => {
       if (!line) return this.prompt();
       const [cmd, key, ...args] = UtilService.parseArgs(line.trim());
       const $cmd = Object.keys(this.#cli).includes(cmd) ? cmd : cmdNotFound;
-      const value = await Promise.resolve(this.#cli[$cmd](key, ...args)).catch(e => e);
-      return this.emit($cmd, value);
+      return this.#cli[$cmd](key, ...args)
+        .then(value => this.emit($cmd, value))
+        .catch(error => this.emit('error', { key: $cmd, error }));
     });
+  }
+
+  emit(event, ...args) {
+    if (event === 'error' && !this.listenerCount('error')) return false;
+    return super.emit(event, ...args);
   }
 
   cli() {
@@ -86,10 +92,13 @@ module.exports = class Sandman extends EventEmitter {
 
         if (typeof value === 'function') {
           return (...args) => {
+            const result = new Promise((resolve) => { resolve(value.apply(this, args)); });
+
+            if (self.#cliCounter > 0) return result;
+
             self.#cliCounter++;
             self.#readline.pause();
-            const result = value.apply(this, args);
-            Promise.resolve(result).catch(() => null).finally(() => setImmediate(() => {
+            result.catch(() => null).finally(() => setImmediate(() => {
               if (--self.#cliCounter === 0) self.prompt();
             }));
             return result;
