@@ -84,7 +84,11 @@ module.exports = class Sandman extends EventEmitter {
         $: this.#configClient.raw(key),
         [key]: this.#configClient.get(key),
       }),
-      curl: key => CURLService.toCURL(this.#configClient.get(key, {}).request),
+      curl: (key) => {
+        const { path, params, ...raw } = this.#configClient.get(key, {}).request ?? {};
+        const { url } = FetchService.normalizeRequest({ ...raw, path, params });
+        return CURLService.toCURL({ ...raw, url });
+      },
       quit: () => process.exit(),
     }, {
       get(obj, prop, receiver) {
