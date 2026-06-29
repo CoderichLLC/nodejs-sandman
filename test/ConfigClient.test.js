@@ -1,8 +1,7 @@
 const Path = require('node:path');
 const ConfigClient = require('../src/ConfigClient');
 
-const appRootDir = Path.resolve(__dirname, '..');
-const configClient = new ConfigClient(Path.join(appRootDir, 'config'));
+const configClient = new ConfigClient(Path.resolve(__dirname, 'config'));
 
 describe('ConfigClient', () => {
   let targetData;

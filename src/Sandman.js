@@ -1,6 +1,7 @@
 const Path = require('node:path');
 const EventEmitter = require('node:events');
 const { spawn } = require('node:child_process');
+const Util = require('@coderich/util');
 const ReadlineService = require('./ReadlineService');
 const UtilService = require('./UtilService');
 const CURLService = require('./CURLService');
@@ -23,9 +24,10 @@ module.exports = class Sandman extends EventEmitter {
 
     this.#readline.on('line', (line) => {
       if (!line) return this.prompt();
-      const [cmd, key, ...args] = UtilService.parseArgs(line.trim());
+      const [cmd, key = this.#configClient.get('$key'), ...args] = UtilService.parseArgs(line.trim());
       const $cmd = Object.keys(this.#cli).includes(cmd) ? cmd : cmdNotFound;
-      return this.#cli[$cmd](key, ...args)
+      if ($cmd === '/') this.#configClient.set('$key', key);
+      return Promise.resolve(this.#cli[$cmd](key, ...args))
         .then(value => this.emit($cmd, value))
         .catch(error => this.emit('error', { key: $cmd, error }));
     });
@@ -41,12 +43,12 @@ module.exports = class Sandman extends EventEmitter {
   }
 
   prompt() {
-    this.#readline.setPrompt(this.#configClient.get('prompt'));
+    this.#readline.setPrompt(this.#configClient.get('$prompt'));
     this.#readline.prompt(true);
     return this;
   }
 
-  #run(key, opts = { emit: true }) {
+  async #run(key, opts = { emit: true }) {
     const api = this.#configClient.get(key, {});
 
     if (!api?.request) {
@@ -60,6 +62,12 @@ module.exports = class Sandman extends EventEmitter {
 
     return FetchService.fetch(request).then(({ response, data }) => {
       if (opts.emit) this.emit('response', { response, api, key, data });
+
+      // Assign feature
+      Object.entries(api.assign || {}).forEach(([k, path]) => {
+        this.#configClient.set(k, path ? Util.get(data, path) : data);
+      });
+
       return { response, api, key, data };
     }).catch((error) => {
       if (opts.emit) this.emit('error', { key, api, error });
@@ -74,8 +82,8 @@ module.exports = class Sandman extends EventEmitter {
 
     this.#cli = Object.defineProperties(new Proxy({
       '/': (...args) => this.#run(...args),
-      edit: (key, ext = '.yaml') => {
-        const path = this.#configClient.get('ide', 'open');
+      edit: (key) => {
+        const path = this.#configClient.get('$ide', 'open');
         const filePath = Path.join(this.#configDir, ...key.split('.')).concat('.yaml');
         const child = spawn(path, [filePath], { detached: true, stdio: 'ignore' });
         child.unref();
@@ -84,7 +92,7 @@ module.exports = class Sandman extends EventEmitter {
         $: this.#configClient.raw(key),
         [key]: this.#configClient.get(key),
       }),
-      curl: (key) => {
+      curl: async (key) => {
         const { path, params, ...raw } = this.#configClient.get(key, {}).request ?? {};
         const { url } = FetchService.normalizeRequest({ ...raw, path, params });
         return CURLService.toCURL({ ...raw, url });
@@ -96,13 +104,10 @@ module.exports = class Sandman extends EventEmitter {
 
         if (typeof value === 'function') {
           return (...args) => {
-            const result = new Promise((resolve) => { resolve(value.apply(this, args)); });
-
-            if (self.#cliCounter > 0) return result;
-
             self.#cliCounter++;
             self.#readline.pause();
-            result.catch(() => null).finally(() => setImmediate(() => {
+            const result = value.apply(this, args);
+            Promise.resolve(result).catch(() => null).finally(() => setImmediate(() => {
               if (--self.#cliCounter === 0) self.prompt();
             }));
             return result;
