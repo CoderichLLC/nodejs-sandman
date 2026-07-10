@@ -3,7 +3,8 @@
   "version": "0.1.2",
   "main": "index.js",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": false
   },
   "files": [
     "src",
@@ -15,7 +16,7 @@
     "dev": "coderich-dev"
   },
   "dependencies": {
-    "@coderich/config": "2.3.0",
+    "@coderich/config": "2.3.2",
     "@coderich/util": "2.2.3",
     "chokidar": "4.0.3"
   },

@@ -38,6 +38,11 @@ npm run dev                 # Start dev server (coderich-dev)
 - **Dot-notation keys** throughout: `configClient.get('sandman.folder.introspection.request.url')` traverses the nested config.
 - **`.` prefix** on keys accesses the `dictionary['.']` (resolved variable dictionary), not the raw config tree.
 - **`${self:some.key}`** syntax in YAML values is resolved by `@coderich/config` for self-referential interpolation.
+- **`$key` / `$args` runtime state** — each CLI line captures a target `$key` and a `$args` object that YAML can reference via `${self:$key}`, `${self:$args.0}`, `${self:$args.name}`. Two arg styles:
+  - **Index-driven** — whitespace-separated tokens after the key: `<cmd> <key> a b` → `$args.0=a`, `$args.1=b`.
+  - **User-defined** — a query string glued to the key: `<cmd> <key>?name=richard&age=42` → `$args.name=richard`. Everything from the first `?` to end of line is the query string, split on `&` then the first `=`, so **spaces inside a value are preserved verbatim** (the end user does not hand-encode): `<key>?name=richard livolsi` → `$args.name="richard livolsi"`. `%XX` sequences are still decoded. Because the query consumes the rest of the line, index-driven tokens cannot follow a `?`.
+
+  `$args` resets on every invocation, **except** a bare `<cmd>` (no key, no query), which replays the prior `$key`/`$args`. The index-driven tokens are also forwarded to the cli method as `...args` (`cli.myCmd = (key, ...args) => …`) — `$args` is the config-visible parallel copy for `${self:…}` interpolation, and does not replace programmatic argument passing. The built-in `/` ignores the forwarded args and reads them via `$args`.
 - **`+.yaml` merge files** are consumed at parse time and are invisible to watchers — they do not appear as config keys.
 - The `Sandman` class emits events: `save`, `api`, `request`, `response`, `error`, plus the command name for each CLI command result.
 

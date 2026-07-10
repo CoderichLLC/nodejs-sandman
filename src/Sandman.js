@@ -23,10 +23,27 @@ module.exports = class Sandman extends EventEmitter {
     this.#configClient.watch(this.#configDir, event => this.emit('save', event));
 
     this.#readline.on('line', (line) => {
-      if (!line) return this.prompt();
-      const [cmd, key = this.#configClient.get('$key'), ...args] = UtilService.parseArgs(line.trim());
+      if (!line?.trim()) return this.prompt();
+      const { cmd, keyToken, positional, query } = UtilService.parseLine(line.trim());
       const $cmd = Object.keys(this.#cli).includes(cmd) ? cmd : cmdNotFound;
-      if ($cmd === '/') this.#configClient.set('$key', key);
+      let key; let args;
+
+      // A bare `<cmd>` (no key, no query) replays the prior `$key`/`$args`, forwarding
+      // the prior positional args downstream. Otherwise capture `$args` fresh from the
+      // line (index-driven positional + user-defined query pairs) and forward the
+      // positional args to the cli method for programmatic use.
+      if (keyToken === undefined && !query) {
+        key = this.#configClient.get('$key');
+        args = UtilService.toPositional(this.#configClient.get('$args'));
+      } else {
+        key = keyToken ?? this.#configClient.get('$key');
+        args = positional;
+        this.#configClient.set('$args', UtilService.buildArgs(positional, query));
+      }
+
+      // Default ops capture $key
+      if (['/', 'edit', 'view', 'curl'].includes($cmd)) this.#configClient.set('$key', key);
+
       return Promise.resolve(this.#cli[$cmd](key, ...args))
         .then(value => this.emit($cmd, value))
         .catch(error => this.emit('error', { key: $cmd, error }));
@@ -48,7 +65,9 @@ module.exports = class Sandman extends EventEmitter {
     return this;
   }
 
-  async #run(key, opts = { emit: true }) {
+  async #run(key, opts) {
+    // Forwarded positional args (strings) must not be mistaken for the programmatic opts.
+    opts = opts?.constructor === Object ? opts : { emit: true };
     const api = this.#configClient.get(key, {});
 
     if (!api?.request) {
