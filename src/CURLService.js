@@ -19,9 +19,9 @@ exports.toCURL = function toCURL(request, { pretty = true, redactAuth = false } 
   // Append query params (supports object, Map, URLSearchParams, string)
   if (params) {
     const append = (k, v) => {
-      if (v == null) return;
+      if (v == null || v === 'undefined') return;
       if (Array.isArray(v) || v instanceof Set) {
-        for (const x of v) full.searchParams.append(k, String(x));
+        for (const x of v) { if (x != null && x !== 'undefined') full.searchParams.append(k, String(x)); }
       } else {
         full.searchParams.append(k, String(v));
       }
