@@ -16,7 +16,7 @@
     "dev": "coderich-dev"
   },
   "dependencies": {
-    "@coderich/config": "2.3.2",
+    "@coderich/config": "2.4.1",
     "@coderich/util": "2.2.3",
     "chokidar": "4.0.3"
   },
