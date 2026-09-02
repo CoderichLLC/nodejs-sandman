@@ -90,19 +90,23 @@ module.exports = class ConfigClient extends Config {
 
     const mergeKeys = Object.keys(this.#mergeData).reverse();
 
+    // A `+.yaml` default only fills a path the API leaves undefined. Because `flatData` holds
+    // leaf keys, an API value that is an object (or array) lives under child keys, so the exact
+    // path is absent from `flatData` — check for descendants too or the default clobbers it.
+    const isDefined = path => flatData[path] != null || Object.keys(flatData).some(k => k.startsWith(`${path}.`));
+
+    const applyDefaults = (apiKey, defaults) => {
+      Object.entries(defaults).forEach(([k, v]) => {
+        const path = `${apiKey}.${k}`;
+        if (!isDefined(path)) flatData[path] = v;
+      });
+    };
+
     apiKeys.forEach((apiKey) => {
       mergeKeys.forEach((mergeKey) => {
-        if (apiKey.startsWith(mergeKey)) {
-          Object.entries(this.#mergeData[mergeKey][dataSymbol]).forEach(([k, v]) => {
-            flatData[`${apiKey}.${k}`] ??= v;
-          });
-        }
+        if (apiKey.startsWith(mergeKey)) applyDefaults(apiKey, this.#mergeData[mergeKey][dataSymbol]);
       });
-      if (this.#mergeData[dataSymbol]) {
-        Object.entries(this.#mergeData[dataSymbol]).forEach(([k, v]) => {
-          flatData[`${apiKey}.${k}`] ??= v;
-        });
-      }
+      if (this.#mergeData[dataSymbol]) applyDefaults(apiKey, this.#mergeData[dataSymbol]);
     });
 
     const unflatData = Util.unflatten(flatData);

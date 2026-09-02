@@ -1,0 +1,6 @@
+request:
+  data:
+    variables:
+      id: '${self:$args.id}'
+      input: '${self:$args.input}'
+      where: '${self:$args.where}'

@@ -1,0 +1,9 @@
+request:
+  data:
+    query: 'mutation'
+    variables:
+      id: 'abc'
+      input:
+        ehrConfig:
+          vendor: 'epic'
+          scopes: ['a', 'b']
