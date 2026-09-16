@@ -5,9 +5,19 @@ const Config = require('@coderich/config');
 const Util = require('@coderich/util');
 
 const dataSymbol = Symbol('dataSymbol');
+const cacheSymbol = Symbol('cacheSymbol');
+const internalSymbol = Symbol('internalSymbol');
+
+// Symbol-keyed properties and a module-scope function rather than private fields/methods:
+// `Config`'s constructor calls `merge()` -> `resolve()`, which lands in our override *before*
+// any class field or private method exists on the instance (a `this.#x` there would throw).
+const invalidate = (self) => {
+  if (!self[internalSymbol]) self[cacheSymbol]?.clear();
+  return self;
+};
 
 module.exports = class ConfigClient extends Config {
-  #configDir; #mergeData = {};
+  #configDir; #mergeData = {}; [cacheSymbol] = new Map();
 
   constructor(configDir) {
     super({}, {
@@ -34,12 +44,40 @@ module.exports = class ConfigClient extends Config {
       return k.length ? Util.get(dictionary['.'], k) : dictionary['.'];
     }
 
+    // Memoized only when no defaultValue was passed: the cache is keyed by `key` alone, and
+    // `Sandman.#run` (the one caller that mutates what it gets back, via
+    // `FetchService.normalizeRequest`) always passes a default. Every mutation funnels through
+    // `resolve()`/`flush()`/`#ignore()`, which drop the cache — see `invalidate`.
+    const cacheable = args.length === 0;
+    if (cacheable && this[cacheSymbol].has(key)) return this[cacheSymbol].get(key);
+
     const data = super.get(key, ...args);
     const mergedData = this.#mergeMergeData(key, data);
-    this.set(dataSymbol, mergedData);
-    const resolvedData = super.get(dataSymbol);
-    this.del(dataSymbol);
+
+    // `set`/`del` of `dataSymbol` is a scratch write that resolves substitutions and is undone
+    // immediately; it must not drop the cache we are in the middle of populating.
+    this[internalSymbol] = true;
+    let resolvedData;
+    try {
+      this.set(dataSymbol, mergedData);
+      resolvedData = super.get(dataSymbol);
+      this.del(dataSymbol);
+    } finally {
+      this[internalSymbol] = false;
+    }
+
+    if (cacheable) this[cacheSymbol].set(key, resolvedData);
     return resolvedData;
+  }
+
+  // Every `Config` mutation (`set`, `del`, `merge`) ends in `resolve()`, so overriding it here
+  // covers them all. `flush()` is the one that bypasses it.
+  resolve(...args) {
+    return invalidate(super.resolve(...args));
+  }
+
+  flush(...args) {
+    return invalidate(super.flush(...args));
   }
 
   raw(key = '') {
@@ -93,12 +131,22 @@ module.exports = class ConfigClient extends Config {
     // A `+.yaml` default only fills a path the API leaves undefined. Because `flatData` holds
     // leaf keys, an API value that is an object (or array) lives under child keys, so the exact
     // path is absent from `flatData` — check for descendants too or the default clobbers it.
-    const isDefined = path => flatData[path] != null || Object.keys(flatData).some(k => k.startsWith(`${path}.`));
+    // `ancestors` holds every dotted prefix of every key, so `ancestors.has(path)` answers
+    // "does some key start with `path.`?" in O(1). Scanning `Object.keys(flatData)` per default
+    // instead made this O(apiKeys * defaults * keys) — ~1.8s per tab-complete on a 400-api config.
+    const ancestors = new Set();
+    const addAncestors = (flatKey) => {
+      for (let i = flatKey.indexOf('.'); i !== -1; i = flatKey.indexOf('.', i + 1)) ancestors.add(flatKey.substring(0, i));
+    };
+    Object.keys(flatData).forEach(addAncestors);
+
+    const isDefined = path => flatData[path] != null || ancestors.has(path);
 
     const applyDefaults = (apiKey, defaults) => {
       Object.entries(defaults).forEach(([k, v]) => {
         const path = `${apiKey}.${k}`;
-        if (!isDefined(path)) flatData[path] = v;
+        // Defaults land in `flatData` as we go, so a later default must see the earlier one.
+        if (!isDefined(path)) { flatData[path] = v; addAncestors(path); }
       });
     };
 
@@ -119,8 +167,18 @@ module.exports = class ConfigClient extends Config {
     if (name.startsWith('+')) {
       const path = paths.slice(0, -1).join('.');
       const request = Util.flatten(Config.parseFile(filepath));
-      if (path) this.#mergeData[path] = { [dataSymbol]: request };
-      else this.#mergeData[dataSymbol] = request;
+
+      // Chokidar re-runs `ignored` for paths it has already seen, so only drop the cache when
+      // the defaults actually changed — `#mergeData` feeds `#mergeMergeData` and bypasses
+      // `Config`, so nothing else would invalidate it.
+      const previous = path ? this.#mergeData[path]?.[dataSymbol] : this.#mergeData[dataSymbol];
+
+      if (!Util.isEqual(previous, request)) {
+        if (path) this.#mergeData[path] = { [dataSymbol]: request };
+        else this.#mergeData[dataSymbol] = request;
+        invalidate(this);
+      }
+
       return true;
     }
 
